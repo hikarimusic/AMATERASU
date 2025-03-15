@@ -12,7 +12,7 @@ pca_plot_group_order = {} # Example: {"Gender": ['female', 'male']}
 gene_threshold = 1
 gene_normalize = 'median' # 'median', 'mean', none
 
-cluster_gene_metric = 'correlation'
+cluster_gene_metric = 'seuclidean'
 cluster_case_metric = 'seuclidean'
 cluster_gene_method = 'ward'
 cluster_case_method = 'ward'
@@ -122,9 +122,17 @@ def cluster(summarize_file, group_columns):
     expression_data = selected_gene_data.multiply(scale_factors, axis=0)
     print(f"[Filter Genes] {expression_data.shape[1]}                 ")
 
-    # Hierarchy clustering
+    # Hierarchy clustering (using z-scores for gene clustering)
     print(f"[Hierarchy Cluster] ...", end='\r')
-    gene_dist = pdist(expression_data.T, metric=cluster_gene_metric)
+    # Z-score normalization before clustering
+    scaler = StandardScaler()
+    z_scores_for_clustering = pd.DataFrame(
+        scaler.fit_transform(expression_data),
+        columns=expression_data.columns,
+        index=expression_data.index
+    )
+
+    gene_dist = pdist(z_scores_for_clustering.T, metric=cluster_gene_metric)
     case_dist = pdist(expression_data, metric=cluster_case_metric)
     
     gene_linkage = hierarchy.linkage(gene_dist, method=cluster_gene_method)
@@ -153,10 +161,12 @@ def cluster(summarize_file, group_columns):
     
     # Create heatmap
     print("[Create Heatmap] ...", end='\r')
-    scaler = StandardScaler()
-    z_scores = pd.DataFrame(scaler.fit_transform(data_ordered), 
-                            columns=data_ordered.columns, 
-                            index=data_ordered.index)
+    # Calculate z-scores for the ordered data
+    z_scores = pd.DataFrame(
+        scaler.fit_transform(data_ordered), 
+        columns=data_ordered.columns, 
+        index=data_ordered.index
+    )
     
     plt.style.use('seaborn-v0_8-whitegrid')
     fig = plt.figure(figsize=heatmap_size)
@@ -165,16 +175,17 @@ def cluster(summarize_file, group_columns):
                         height_ratios=[1] + [0.1] * len(group_columns) + [10],
                         left=0.05, right=0.95, bottom=0.05, top=0.95, wspace=0.02, hspace=0.02)
     
-    # Heatmap
+    # Heatmap - FIX: flip the gene order to match dendrogram orientation
     ax_heatmap = fig.add_subplot(gs[1+len(group_columns), 1])
     vmin = np.percentile(z_scores.values, 1)
     vmax = np.percentile(z_scores.values, 99)
-    sns.heatmap(z_scores.T, cmap=heatmap_color, center=0, vmin=vmin, vmax=vmax,
+    sns.heatmap(z_scores.T.iloc[::-1], cmap=heatmap_color, center=0, vmin=vmin, vmax=vmax,
                 xticklabels=False, yticklabels=heatmap_gene_name, cbar=False, ax=ax_heatmap)
 
     # Gene dendrogram
     if heatmap_gene_name == True:
-        ax_heatmap.set_yticklabels(data_ordered.columns, fontsize=heatmap_font_size, rotation=0)
+        # If showing gene names, need to reverse order to match the flipped heatmap
+        ax_heatmap.set_yticklabels(data_ordered.columns[::-1], fontsize=heatmap_font_size, rotation=0)
     else:
         ax_gene_dendrogram = fig.add_subplot(gs[1+len(group_columns), 0])
         hierarchy.dendrogram(gene_linkage, orientation='left', ax=ax_gene_dendrogram, link_color_func=lambda k: 'black')
