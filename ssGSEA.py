@@ -11,15 +11,9 @@ import os
 import pandas as pd
 import numpy as np
 
-def calculate_ssGSEA_score(expression_values, gene_set, weight=ssGSEA_weight):
+def calculate_ssGSEA_score(expression_values, gene_list, gene_set2, weight=ssGSEA_weight):
     gene_names = expression_values.index
     n_rows = len(gene_names)
-    
-    # Sort the genes
-    gene_list = np.argsort(-expression_values.values, kind='stable')
-    
-    # Find matching genes 
-    gene_set2 = np.where(np.isin(gene_names, gene_set))[0]
     
     # Z values normalization
     if weight == 0:
@@ -74,7 +68,13 @@ def ssGSEA(summarize_file, gmt_file):
             genes = list(parts[2:])
             gene_sets[gene_set_name] = genes
     print(f"[Load GeneSets] {len(gene_sets)}                 ")
-    
+
+    # Pre-compute gene set indices for each gene set
+    gene_names = gene_data.columns
+    gene_set_indices = {}
+    for gene_set_name, gene_set in gene_sets.items():
+        gene_set_indices[gene_set_name] = np.where(np.isin(gene_names, gene_set))[0]
+
     # Calculate enrichment scores
     print("[Perform ssGSEA] ...", end='\r')
     enrichment_scores = pd.DataFrame(index=df.index, columns=gene_sets.keys())
@@ -82,9 +82,12 @@ def ssGSEA(summarize_file, gmt_file):
     total_samples = len(df)
     for idx, sample in enumerate(df.index, 1):
         sample_expression = gene_data.loc[sample]
+
+        # Pre-compute sorted gene list for this sample
+        pre_sorted_indices = np.argsort(-sample_expression.values, kind='stable')
         
         for gene_set_name, gene_set in gene_sets.items():
-            score = calculate_ssGSEA_score(sample_expression, gene_set)
+            score = calculate_ssGSEA_score(sample_expression, pre_sorted_indices, gene_set_indices[gene_set_name])
             enrichment_scores.loc[sample, gene_set_name] = score
             
         print(f"[Perform ssGSEA] {idx}/{total_samples}", end='\r')
